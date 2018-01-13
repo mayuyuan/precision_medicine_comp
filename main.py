@@ -21,16 +21,17 @@ del data['性别']
 del data['体检日期']
 data=data.sample(frac = 1) #乱序
 names=data.columns.drop(['id', '男', '女', '血糖'])
+names_plus_id=data.columns.drop(['男', '女', '血糖'])
 #分男女填充缺失值
 data.loc[data['男']==1] = data.loc[data['男']==1].fillna(data.loc[data['男']==1].quantile(0.5))
 data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']==1].quantile(0.5))
 #划分训练集和测试集
 train_male_xs=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), names].values
 train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖']
-test_male_xy=data.loc[(data['男']==1)&(data['血糖'] == 'unknown')].sort_values(by='id')[names]
+test_male_xy=data.loc[(data['男']==1)&(data['血糖'] == 'unknown')][names_plus_id]
 train_female_xs=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), names].values
 train_female_ys=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), '血糖']
-test_female_xy=data.loc[(data['女']==1)&(data['血糖'] == 'unknown')].sort_values(by='id')[names]
+test_female_xy=data.loc[(data['女']==1)&(data['血糖'] == 'unknown')][names_plus_id]
 #%%
 def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_function=None):
     # add one more layer and return the output of this layer  
@@ -126,7 +127,7 @@ len_train_male = len(train_male_xs)
 len_train_female = len(train_female_xs)
 batch = min(batch, len_train_male, len_train_female)
 n = 0
-for i in range(601):
+for i in range(4001):
 #feed的是numpy.ndarray格式
     if n+batch < len_train_male:
         batch_male_xs = train_male_xs[n:n+batch]
@@ -163,7 +164,7 @@ for i in range(601):
 # 男女模型结果合体
 test_male_xy['血糖'] = sess_male.run(y_pre, feed_dict={xs:test_male_xy[names].values})
 test_female_xy['血糖'] = sess_female.run(y_pre, feed_dict={xs:test_female_xy[names].values})
-test_xy=pd.concat([test_male_xy, test_male_xy], axis=0)#因为没有id，有问题!!!
+test_xy=pd.concat([test_male_xy, test_female_xy], axis=0).sort_values(by='id')
 result=test_xy['血糖']
 #%%
 ########################## 存储答案 ##########################
