@@ -26,9 +26,15 @@ data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']=
 train_male_xs=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), names].values
 train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖']
 test_male_xy=data.loc[(data['男']==1)&(data['血糖'] == 'unknown')][names_plus_id]
+scaler_male=preprocessing.StandardScaler().fit(train_male_xs)
+train_male_xs=scaler_male.transform(train_male_xs)
+test_male_xy[names]=scaler_male.transform(test_male_xy[names])
 train_female_xs=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), names].values
 train_female_ys=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), '血糖']
 test_female_xy=data.loc[(data['女']==1)&(data['血糖'] == 'unknown')][names_plus_id]
+scaler_female=preprocessing.StandardScaler().fit(train_female_xs)
+train_female_xs=scaler_female.transform(train_female_xs)
+test_female_xy[names]=scaler_female.transform(test_female_xy[names])
 #%%
 def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_function=None):
     # add one more layer and return the output of this layer  
