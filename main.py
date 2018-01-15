@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Jan 10 18:54:14 2018
 
-@author: mayuyuan
-"""
 import pandas as pd
 import numpy as np
 import tensorflow as tf
+from sklearn import preprocessing
 import matplotlib.pyplot as plt
 #%%
 #读取数据
@@ -23,8 +20,8 @@ data=data.sample(frac = 1) #乱序
 names=data.columns.drop(['id', '男', '女', '血糖'])
 names_plus_id=data.columns.drop(['男', '女', '血糖'])
 #分男女填充缺失值
-data.loc[data['男']==1] = data.loc[data['男']==1].fillna(data.loc[data['男']==1].quantile(0.5))
-data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']==1].quantile(0.5))
+data.loc[data['男']==1] = data.loc[data['男']==1].fillna(data.loc[data['男']==1].mean())
+data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']==1].mean())
 #划分训练集和测试集
 train_male_xs=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), names].values
 train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖']
@@ -53,11 +50,11 @@ def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_func
     tf.summary.histogram(layername+'/output', output)
     return output
 
-def multilayer(n_layer, x, output_size, keep_prob, activation_function):
+def multilayer(n_layer, x, output_size, keep_prob, lamb, activation_function):
     for n in range(n_layer):
         layername = 'layer' + str(n+1)
         x = layer(layername, x, output_size=output_size[n], 
-                  keep_prob=keep_prob[n], 
+                  keep_prob=keep_prob[n], lamb=lamb[n], 
                   activation_function=activation_function[n])
     return x
 
@@ -73,19 +70,35 @@ def a1():#看各特征和血糖的关系，蓝点男人，红点女人
         plt.xlable="{}.{}".format(i+1, c[i])
         plt.ylable='血糖'
     plt.savefig('a1.png')
+def a2():#看数据截面
+    data_d=pd.DataFrame([],columns=data.columns)
+    data['血糖']=data['血糖'].replace('unknown', np.nan)
+    for d,ind in [[data,'男+女'], [data.loc[data['女']==1],'女'], [data.loc[data['男']==1],'女']]:
+        data_dscr=pd.DataFrame([d.min(),d.mean(),d.max()],columns=d.columns,index=['min'+ind,'mean'+ind,'max'+ind])
+        data_d=pd.concat([data_d, data_dscr])
+    data['血糖']=data['血糖'].replace(np.nan,'unknown')
+    return data_d
 #%%
 with tf.name_scope('inputs'):
     xs=tf.placeholder(tf.float32, [None, len(names)], name='x_input')
     ys=tf.placeholder(tf.float32, [None,], name='y_input')
 #with tf.name_scope('middlelayer'):
-#    n_layer = 40
-#    output_size = [len(f_data)*6]*6+[len(f_data)*3]*(n_layer-6)
+#    n_layer = 1
+#    output_size = [int((len(names)+1)*2/3)]*n_layer
 #    keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
+#    lamb=[0.]*n_layer
 #    activation_function = [tf.nn.relu]*n_layer
-#    middlelayer = multilayer(n_layer, xs, output_size=output_size, 
-#                    keep_prob=keep_prob, activation_function=activation_function)
+#    middlelayer = multilayer(n_layer, xs, 
+#                             output_size=output_size, 
+#                             keep_prob=keep_prob, 
+#                             lamb=lamb,
+#                             activation_function=activation_function)
+    
+n_layer = 1
+keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
+
 y_pre =layer('layer_y', xs, output_size=1, activation_function=None, lamb=0.1)
-mse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(y_pre-ys), reduction_indices=[1]))
+mse_loss = tf.reduce_mean(tf.square(y_pre-ys))
 tf.add_to_collection('losses', mse_loss)
 # loss
 with tf.name_scope('loss'):
@@ -97,7 +110,7 @@ with tf.name_scope('loss'):
 
 # optimizer
 with tf.name_scope('train'):
-    train_step=tf.train.AdamOptimizer(0.001).minimize(loss)
+    train_step=tf.train.AdamOptimizer(0.0005).minimize(loss)
 
 #evaluate
 with tf.name_scope('evaluate'):
@@ -109,7 +122,6 @@ with tf.name_scope('evaluate'):
         tf.summary.scalar('value', accuracy)
 merged = tf.summary.merge_all()
 init = tf.global_variables_initializer()
-
 #%%
 sess_male=tf.Session()
 sess_male.run(init)
@@ -127,7 +139,7 @@ len_train_male = len(train_male_xs)
 len_train_female = len(train_female_xs)
 batch = min(batch, len_train_male, len_train_female)
 n = 0
-for i in range(4001):
+for i in range(5001):
 #feed的是numpy.ndarray格式
     if n+batch < len_train_male:
         batch_male_xs = train_male_xs[n:n+batch]
@@ -137,7 +149,7 @@ for i in range(4001):
         batch_male_xs = np.vstack((train_male_xs[n:], train_male_xs[:n+batch-len_train_male]))
         batch_male_ys = np.hstack((train_male_ys[n:], train_male_ys[:n+batch-len_train_male])) #hstack
         n = n+batch-len_train_male
-    sess_male.run(train_step, feed_dict={xs:batch_male_xs, ys:batch_male_ys})#, keep_prob:[0.6]*n_layer
+    sess_male.run(train_step, feed_dict={xs:batch_male_xs, ys:batch_male_ys, keep_prob:[1.]*n_layer})#
     
     if n+batch < len_train_female:
         batch_female_xs = train_female_xs[n:n+batch]
@@ -147,19 +159,19 @@ for i in range(4001):
         batch_female_xs = np.vstack((train_female_xs[n:], train_female_xs[:n+batch-len_train_female]))
         batch_female_ys = np.hstack((train_female_ys[n:], train_female_ys[:n+batch-len_train_female])) #hstack
         n = n+batch-len_train_female
-    sess_female.run(train_step, feed_dict={xs:batch_female_xs, ys:batch_female_ys})#, keep_prob:[0.6]*n_layer
+    sess_female.run(train_step, feed_dict={xs:batch_female_xs, ys:batch_female_ys, keep_prob:[1.]*n_layer})
     
     if i%200 == 0:
-        results_male = sess_male.run(merged, feed_dict={xs:batch_male_xs, ys: batch_male_ys})#, keep_prob:[1]*n_layer
+        results_male = sess_male.run(merged, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})
         writer_male.add_summary(results_male, i)
         print ('male第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_male.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys}),
-               sess_male.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys})))
-        results_female = sess_female.run(merged, feed_dict={xs:batch_female_xs, ys: batch_female_ys})#, keep_prob:[1]*n_layer
+               sess_male.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer}),
+               sess_male.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})))
+        results_female = sess_female.run(merged, feed_dict={xs:batch_female_xs, ys: batch_female_ys, keep_prob:[1.]*n_layer})
         writer_female.add_summary(results_female, i)
         print ('female第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_female.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys}),
-               sess_female.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys})))
+               sess_female.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer}),
+               sess_female.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})))
 #%%
 # 男女模型结果合体
 test_male_xy['血糖'] = sess_male.run(y_pre, feed_dict={xs:test_male_xy[names].values})
