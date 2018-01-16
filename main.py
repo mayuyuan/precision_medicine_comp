@@ -56,14 +56,6 @@ def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_func
     tf.summary.histogram(layername+'/output', output)
     return output
 
-def multilayer(n_layer, x, output_size, keep_prob, lamb, activation_function):
-    for n in range(n_layer):
-        layername = 'layer' + str(n+1)
-        x = layer(layername, x, output_size=output_size[n], 
-                  keep_prob=keep_prob[n], lamb=lamb[n], 
-                  activation_function=activation_function[n])
-    return x
-
 def a1():#看各特征和血糖的关系，蓝点男人，红点女人
     c=names
     fig=plt.figure(figsize=(50,50))
@@ -94,16 +86,16 @@ with tf.name_scope('inputs'):
 #    keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
 #    lamb=[0.]*n_layer
 #    activation_function = [tf.nn.relu]*n_layer
-#    middlelayer = multilayer(n_layer, xs, 
+#    middlelayer = layer(n_layer, xs, 
 #                             output_size=output_size, 
 #                             keep_prob=keep_prob, 
 #                             lamb=lamb,
 #                             activation_function=activation_function)
-    
 n_layer = 1
 keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
-
-y_pre =layer('layer_y', xs, output_size=1, activation_function=None, lamb=0.1)
+outsize_m=int((len(names)+1)*2/3)
+middlelayer =layer('layer1', xs, output_size=outsize_m, activation_function=None, lamb=0.01)
+y_pre =layer('layer_y', middlelayer, output_size=1, activation_function=None, lamb=0.01)
 mse_loss = tf.reduce_mean(tf.square(y_pre-ys))
 tf.add_to_collection('losses', mse_loss)
 # loss
@@ -116,7 +108,7 @@ with tf.name_scope('loss'):
 
 # optimizer
 with tf.name_scope('train'):
-    train_step=tf.train.AdamOptimizer(0.0005).minimize(loss)
+    train_step=tf.train.AdamOptimizer(0.01).minimize(loss)
 
 #evaluate
 with tf.name_scope('evaluate'):
