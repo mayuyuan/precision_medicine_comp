@@ -24,13 +24,13 @@ data.loc[data['男']==1] = data.loc[data['男']==1].fillna(data.loc[data['男']=
 data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']==1].mean())
 #划分训练集和测试集
 train_male_xs=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), names].values
-train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖']
+train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖'].map(np.log1p)
 test_male_xy=data.loc[(data['男']==1)&(data['血糖'] == 'unknown')][names_plus_id]
 scaler_male=preprocessing.StandardScaler().fit(train_male_xs)
 train_male_xs=scaler_male.transform(train_male_xs)
 test_male_xy[names]=scaler_male.transform(test_male_xy[names])
 train_female_xs=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), names].values
-train_female_ys=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), '血糖']
+train_female_ys=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), '血糖'].map(np.log1p)
 test_female_xy=data.loc[(data['女']==1)&(data['血糖'] == 'unknown')][names_plus_id]
 scaler_female=preprocessing.StandardScaler().fit(train_female_xs)
 train_female_xs=scaler_female.transform(train_female_xs)
@@ -80,6 +80,9 @@ def a2():#看数据截面
 with tf.name_scope('inputs'):
     xs=tf.placeholder(tf.float32, [None, len(names)], name='x_input')
     ys=tf.placeholder(tf.float32, [None,], name='y_input')
+n_layer = 1
+keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
+learning_rate=tf.placeholder(tf.float32, name='learning_rate')
 #with tf.name_scope('middlelayer'):
 #    n_layer = 1
 #    output_size = [int((len(names)+1)*2/3)]*n_layer
@@ -91,8 +94,7 @@ with tf.name_scope('inputs'):
 #                             keep_prob=keep_prob, 
 #                             lamb=lamb,
 #                             activation_function=activation_function)
-n_layer = 1
-keep_prob = tf.placeholder(tf.float32, [n_layer,], name='keep_prob')
+
 outsize_m=int((len(names)+1)*2/3)
 middlelayer =layer('layer1', xs, output_size=outsize_m, activation_function=None, lamb=0.01)
 y_pre =layer('layer_y', middlelayer, output_size=1, activation_function=None, lamb=0.01)
@@ -108,7 +110,7 @@ with tf.name_scope('loss'):
 
 # optimizer
 with tf.name_scope('train'):
-    train_step=tf.train.AdamOptimizer(0.01).minimize(loss)
+    train_step=tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 #evaluate
 with tf.name_scope('evaluate'):
@@ -133,11 +135,12 @@ writer_female=tf.summary.FileWriter("./log", sess_female.graph)
 ##########开始训练##########
 #模型训练好多好多周期,用minibatch，一次数万个确实太大了
 batch=2000
+l_rate=0.0001
 len_train_male = len(train_male_xs)
 len_train_female = len(train_female_xs)
 batch = min(batch, len_train_male, len_train_female)
 n = 0
-for i in range(5001):
+for i in range(2001):
 #feed的是numpy.ndarray格式
     if n+batch < len_train_male:
         batch_male_xs = train_male_xs[n:n+batch]
@@ -147,7 +150,7 @@ for i in range(5001):
         batch_male_xs = np.vstack((train_male_xs[n:], train_male_xs[:n+batch-len_train_male]))
         batch_male_ys = np.hstack((train_male_ys[n:], train_male_ys[:n+batch-len_train_male])) #hstack
         n = n+batch-len_train_male
-    sess_male.run(train_step, feed_dict={xs:batch_male_xs, ys:batch_male_ys, keep_prob:[1.]*n_layer})#
+    sess_male.run(train_step, feed_dict={xs:batch_male_xs, ys:batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})#
     
     if n+batch < len_train_female:
         batch_female_xs = train_female_xs[n:n+batch]
@@ -157,25 +160,25 @@ for i in range(5001):
         batch_female_xs = np.vstack((train_female_xs[n:], train_female_xs[:n+batch-len_train_female]))
         batch_female_ys = np.hstack((train_female_ys[n:], train_female_ys[:n+batch-len_train_female])) #hstack
         n = n+batch-len_train_female
-    sess_female.run(train_step, feed_dict={xs:batch_female_xs, ys:batch_female_ys, keep_prob:[1.]*n_layer})
+    sess_female.run(train_step, feed_dict={xs:batch_female_xs, ys:batch_female_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})
     
     if i%200 == 0:
         results_male = sess_male.run(merged, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})
         writer_male.add_summary(results_male, i)
         print ('male第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_male.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer}),
-               sess_male.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})))
-        results_female = sess_female.run(merged, feed_dict={xs:batch_female_xs, ys: batch_female_ys, keep_prob:[1.]*n_layer})
+               sess_male.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate}),
+               sess_male.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})))
+        results_female = sess_female.run(merged, feed_dict={xs:batch_female_xs, ys: batch_female_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})
         writer_female.add_summary(results_female, i)
         print ('female第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_female.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer}),
-               sess_female.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})))
+               sess_female.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate}),
+               sess_female.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})))
 #%%
 # 男女模型结果合体
 test_male_xy['血糖'] = sess_male.run(y_pre, feed_dict={xs:test_male_xy[names].values})
 test_female_xy['血糖'] = sess_female.run(y_pre, feed_dict={xs:test_female_xy[names].values})
 test_xy=pd.concat([test_male_xy, test_female_xy], axis=0).sort_values(by='id')
-result=test_xy['血糖']
+result=test_xy['血糖'].map(np.expm1)
 #%%
 ########################## 存储答案 ##########################
 result.to_csv('results/predict.csv', encoding='utf-8', index=False)
