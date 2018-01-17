@@ -6,9 +6,11 @@ import numpy as np
 import tensorflow as tf
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
 #%%
 #读取数据
-train=pd.read_csv('d_train_20180102.csv', encoding='gbk', parse_dates=['体检日期'])
+train=pd.read_csv('d_train_20180102.csv', encoding='gbk', parse_dates=['体检日期'], dtype={'血糖':np.float64})
 train=train[train['性别'].isin(['男', '女'])]#性别不明者占比特别少，所以直接删掉。如果占比多，就另寻方法处理。
 test=pd.read_csv('d_test_A_20180102.csv', encoding='gbk', parse_dates=['体检日期'])
 test['血糖']='unknown'
@@ -16,25 +18,36 @@ data=pd.concat([train, test], axis=0)
 data=pd.concat([pd.get_dummies(data['性别']), data], axis=1)
 del data['性别']
 del data['体检日期']
-data=data.sample(frac = 1) #乱序
-names=data.columns.drop(['id', '男', '女', '血糖'])
-names_plus_id=data.columns.drop(['男', '女', '血糖'])
-#分男女填充缺失值
-data.loc[data['男']==1] = data.loc[data['男']==1].fillna(data.loc[data['男']==1].mean())
-data.loc[data['女']==1] = data.loc[data['女']==1].fillna(data.loc[data['女']==1].mean())
+# 去除缺失值太多的特征
+data=data.loc[:,data.count()/data.shape[0]>0.5]
+names_without_sex=data.columns.drop(['id', '血糖', '男', '女'])
+# 缺失值填充
+imputer=preprocessing.Imputer().fit(data.loc[data['血糖']!='unknown', names_without_sex])
+data[names_without_sex]=imputer.transform(data[names_without_sex])
+# outlier处理
+scaler=preprocessing.RobustScaler(with_centering=False, with_scaling=False, 
+                quantile_range=(1, 99)).fit(data.loc[data['血糖']!='unknown', names_without_sex])
+data[names_without_sex]=scaler.transform(data[names_without_sex])
+# 多项式
+for i in range(len(names_without_sex)):
+    data[names_without_sex[i]+'_log1p']=data[names_without_sex[i]].map(np.log1p)
+    data[names_without_sex[i]+'_sqrt']=data[names_without_sex[i]].map(np.sqrt)
+    for j in range(i+1, len(names_without_sex)):
+        data[names_without_sex[i]+'*'+names_without_sex[j]]=data[names_without_sex[i]]*data[names_without_sex[j]]
+del i,j
+# 重设各种names
+names=data.columns.drop(['id', '血糖'])
+names_without_sex=data.columns.drop(['id', '血糖', '男', '女'])
+names_plus_id=data.columns.drop(['血糖'])
+#标准化
+scaler=preprocessing.StandardScaler().fit(data.loc[data['血糖'] != 'unknown', names_without_sex])
+data[names_without_sex]=scaler.transform(data[names_without_sex])
 #划分训练集和测试集
-train_male_xs=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), names].values
-train_male_ys=data.loc[(data['男']==1)&(data['血糖'] != 'unknown'), '血糖'].map(np.log1p)
-test_male_xy=data.loc[(data['男']==1)&(data['血糖'] == 'unknown')][names_plus_id]
-scaler_male=preprocessing.StandardScaler().fit(train_male_xs)
-train_male_xs=scaler_male.transform(train_male_xs)
-test_male_xy[names]=scaler_male.transform(test_male_xy[names])
-train_female_xs=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), names].values
-train_female_ys=data.loc[(data['女']==1)&(data['血糖'] != 'unknown'), '血糖'].map(np.log1p)
-test_female_xy=data.loc[(data['女']==1)&(data['血糖'] == 'unknown')][names_plus_id]
-scaler_female=preprocessing.StandardScaler().fit(train_female_xs)
-train_female_xs=scaler_female.transform(train_female_xs)
-test_female_xy[names]=scaler_female.transform(test_female_xy[names])
+data=data.sample(frac = 1) #乱序
+train_xs=data.loc[data['血糖'] != 'unknown', names]
+train_ys=data.loc[data['血糖'] != 'unknown', '血糖']
+test_xy=data.loc[data['血糖'] == 'unknown'][names_plus_id]
+
 #%%
 def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_function=None):
     # add one more layer and return the output of this layer  
@@ -56,26 +69,20 @@ def layer(layername, x, output_size=int, keep_prob=1.0, lamb=0., activation_func
     tf.summary.histogram(layername+'/output', output)
     return output
 
-def a1():#看各特征和血糖的关系，蓝点男人，红点女人
-    c=names
-    fig=plt.figure(figsize=(50,50))
-    for i in range(len(c)):
-        plt.subplot(7,7,i+1)
-        f=train.loc[train['性别']=='女', [c[i], '血糖']].dropna(axis=0)
-        plt.scatter(f[c[i]], f['血糖'], s=8, c='r', alpha=0.3)
-        m=train.loc[train['性别']=='男', [c[i], '血糖']].dropna(axis=0)
-        plt.scatter(m[c[i]], m['血糖'], s=8, c='b', alpha=0.3)
-        plt.xlable="{}.{}".format(i+1, c[i])
-        plt.ylable='血糖'
-    plt.savefig('a1.png')
+def a1():
+    return
 def a2():#看数据截面
-    data_d=pd.DataFrame([],columns=data.columns)
-    data['血糖']=data['血糖'].replace('unknown', np.nan)
-    for d,ind in [[data,'男+女'], [data.loc[data['女']==1],'女'], [data.loc[data['男']==1],'女']]:
-        data_dscr=pd.DataFrame([d.min(),d.mean(),d.max()],columns=d.columns,index=['min'+ind,'mean'+ind,'max'+ind])
-        data_d=pd.concat([data_d, data_dscr])
-    data['血糖']=data['血糖'].replace(np.nan,'unknown')
-    return data_d
+    return
+
+def a3():
+    xt=data.loc[data['血糖'] != 'unknown']
+    for name in names:
+        fig = plt.figure(figsize=(12,5))
+        plt.subplot(121)
+        sns.distplot(xt[name], norm_hist=True)
+        plt.subplot(122)
+        res = stats.probplot(xt[name].map(np.float32), plot=plt)
+        plt.savefig('./pic/'+name+'.png')
 #%%
 with tf.name_scope('inputs'):
     xs=tf.placeholder(tf.float32, [None, len(names)], name='x_input')
@@ -96,7 +103,7 @@ learning_rate=tf.placeholder(tf.float32, name='learning_rate')
 #                             activation_function=activation_function)
 
 outsize_m=int((len(names)+1)*2/3)
-middlelayer =layer('layer1', xs, output_size=outsize_m, activation_function=None, lamb=0.01)
+middlelayer =layer('layer1', xs, output_size=outsize_m, activation_function=tf.nn.relu, lamb=0.01)
 y_pre =layer('layer_y', middlelayer, output_size=1, activation_function=None, lamb=0.01)
 mse_loss = tf.reduce_mean(tf.square(y_pre-ys))
 tf.add_to_collection('losses', mse_loss)
@@ -123,62 +130,41 @@ with tf.name_scope('evaluate'):
 merged = tf.summary.merge_all()
 init = tf.global_variables_initializer()
 #%%
-sess_male=tf.Session()
-sess_male.run(init)
-writer_male=tf.summary.FileWriter("./log", sess_male.graph)
-#graph仍无法显示两个模型，算了，这个目前不重要
-sess_female=tf.Session()
-sess_female.run(init)
-writer_female=tf.summary.FileWriter("./log", sess_female.graph)
+sess=tf.Session()
+sess.run(init)
+writer=tf.summary.FileWriter("./log", sess.graph)
 # 运行后，会在相应的目录里生成一个文件，执行：tensorboard --logdir='./log'
 #%%
 ##########开始训练##########
 #模型训练好多好多周期,用minibatch，一次数万个确实太大了
 batch=2000
-l_rate=0.0001
-len_train_male = len(train_male_xs)
-len_train_female = len(train_female_xs)
-batch = min(batch, len_train_male, len_train_female)
+l_rate=0.001
+len_train = len(train_xs)
+batch = min(batch, len_train)
 n = 0
 for i in range(2001):
 #feed的是numpy.ndarray格式
-    if n+batch < len_train_male:
-        batch_male_xs = train_male_xs[n:n+batch]
-        batch_male_ys = train_male_ys[n:n+batch]
+    if n+batch < len_train:
+        batch_xs = train_xs[n:n+batch]
+        batch_ys = train_ys[n:n+batch]
         n = n+batch
     else:
-        batch_male_xs = np.vstack((train_male_xs[n:], train_male_xs[:n+batch-len_train_male]))
-        batch_male_ys = np.hstack((train_male_ys[n:], train_male_ys[:n+batch-len_train_male])) #hstack
-        n = n+batch-len_train_male
-    sess_male.run(train_step, feed_dict={xs:batch_male_xs, ys:batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})#
-    
-    if n+batch < len_train_female:
-        batch_female_xs = train_female_xs[n:n+batch]
-        batch_female_ys = train_female_ys[n:n+batch]
-        n = n+batch
-    else:
-        batch_female_xs = np.vstack((train_female_xs[n:], train_female_xs[:n+batch-len_train_female]))
-        batch_female_ys = np.hstack((train_female_ys[n:], train_female_ys[:n+batch-len_train_female])) #hstack
-        n = n+batch-len_train_female
-    sess_female.run(train_step, feed_dict={xs:batch_female_xs, ys:batch_female_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})
-    
+        batch_xs = np.vstack((train_xs[n:], train_xs[:n+batch-len_train]))
+        batch_ys = np.hstack((train_ys[n:], train_ys[:n+batch-len_train])) #hstack
+        n = n+batch-len_train
+    sess.run(train_step, feed_dict={xs:batch_xs, ys:batch_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})#
     if i%200 == 0:
-        results_male = sess_male.run(merged, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer})
-        writer_male.add_summary(results_male, i)
-        print ('male第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_male.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate}),
-               sess_male.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})))
-        results_female = sess_female.run(merged, feed_dict={xs:batch_female_xs, ys: batch_female_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})
-        writer_female.add_summary(results_female, i)
-        print ('female第{}步:\tloss:{}\tmse_loss:{}'.format(i, 
-               sess_female.run(loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate}),
-               sess_female.run(mse_loss, feed_dict={xs:batch_male_xs, ys: batch_male_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})))
+        results = sess.run(merged, feed_dict={xs:batch_xs, ys: batch_ys, keep_prob:[1.]*n_layer})
+        writer.add_summary(results, i)
+        print ('第{}步:\tloss:{}\tmse_loss:{}'.format
+               (i, 
+               sess.run(loss, feed_dict={xs:batch_xs, ys: batch_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate}),
+               sess.run(mse_loss, feed_dict={xs:batch_xs, ys: batch_ys, keep_prob:[1.]*n_layer, learning_rate:l_rate})))
 #%%
 # 男女模型结果合体
-test_male_xy['血糖'] = sess_male.run(y_pre, feed_dict={xs:test_male_xy[names].values})
-test_female_xy['血糖'] = sess_female.run(y_pre, feed_dict={xs:test_female_xy[names].values})
-test_xy=pd.concat([test_male_xy, test_female_xy], axis=0).sort_values(by='id')
-result=test_xy['血糖'].map(np.expm1)
+test_xy['血糖'] = sess.run(y_pre, feed_dict={xs:test_xy[names].values})
+test_xy=test_xy.sort_values(by='id')
+result=test_xy['血糖'].map(lambda x:round(x,3))
 #%%
 ########################## 存储答案 ##########################
 result.to_csv('results/predict.csv', encoding='utf-8', index=False)
