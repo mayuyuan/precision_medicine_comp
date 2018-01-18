@@ -144,7 +144,7 @@ writer=tf.summary.FileWriter("./log", sess.graph)
 ##########开始训练##########
 #模型训练好多好多周期,用minibatch，一次数万个确实太大了
 batch=3000
-l_rate=0.001
+l_rate=0.0001
 lamb=0.01
 kp=1.
 len_train = len(train_xs)
