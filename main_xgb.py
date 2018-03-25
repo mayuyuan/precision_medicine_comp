@@ -67,12 +67,13 @@ dtest=xgb.DMatrix(X_test, label=y_test)
 evallist  = [(dtest,'eval'), (dtrain,'train')]
 #设置参数  
 num_trees=450  
-params = {"objective": "reg:gblinear",
-          "eta": 0.15,
-          "max_depth": 4,
-          "subsample": 0.7,
-          "colsample_bytree": 0.7,
-          "silent": 1
+params = {"booster": "gbtree",# gbtree使用树模型，gblinear使用线性模型
+          "objective": "reg:linear",
+          "eta": 0.15, # step size shrinkage 收缩步长
+          "max_depth": 4,# maximum depth of a tree
+          "subsample": 0.7,# 用于训练模型的子样本占整个样本集合的比例, 防过拟合
+          "silent": 1# 取0时表示打印出运行时信息，取1时表示以缄默方式运行
           }
+gbm = xgb.train(params, dtrain, num_trees, evals=evallist)
 
 
